@@ -55,3 +55,61 @@ bash install.sh
 
 # Start the Dex-Tux server
 python app.py
+```
+2. Client Configuration (on your Computer/Other Device)
+To access your .tux domains, you need to tell your computer where to find them.
+
+Find your Termux device's local IP address. In Termux, run:
+
+```Bash
+
+ifconfig
+```
+Look for the inet address under the wlan0 interface (e.g., 192.168.1.42).
+
+Edit your hosts file with administrator/sudo privileges.
+
+Windows: C:\Windows\System32\drivers\etc\hosts
+
+macOS / Linux: /etc/hosts
+
+Add entries for dex.tux and any other domains you create. Replace YOUR_TERMUX_IP with the IP you just found.
+
+# Dex-Tux Domains
+YOUR_TERMUX_IP   dex.tux
+YOUR_TERMUX_IP   flipper.tux
+3. Access Your Control Panel
+Open a web browser on your configured computer and navigate to:
+
+http://dex.tux:8080
+
+You should now see the Dex-Tux control panel, ready to manage your domains!
+
+## 🗺️ Project Roadmap
+[ ] Core: Basic web app to add/remove Nginx server blocks.
+
+[ ] UI/UX: A clean, responsive frontend for the control panel.
+
+[ ] Authentication: Add a login page to secure the control panel.
+
+[ ] File Manager: A simple web-based file manager for each domain's directory.
+
+[ ] Local SSL: A feature to generate self-signed SSL certificates for https access.
+
+[ ] One-Click Installers: Add buttons to quickly deploy popular apps (e.g., WordPress).
+
+### 🤝 Contributing
+Contributions are welcome! If you have an idea for a new feature or have found a bug, please open an issue or submit a pull request.
+
+Fork the Project
+
+Create your Feature Branch (git checkout -b feature/AmazingFeature)
+
+Commit your Changes (git commit -m 'Add some AmazingFeature')
+
+Push to the Branch (git push origin feature/AmazingFeature)
+
+Open a Pull Request
+
+#### 📜 License
+This project is distributed under the MIT License. See LICENSE.txt for more information.
