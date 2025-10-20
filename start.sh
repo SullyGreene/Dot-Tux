@@ -1,4 +1,4 @@
-#!/data/data/com/termux/files/usr/bin/bash
+#!/usr/bin/env bash
 
 # ==============================================================================
 # Dot-Tux Start Script (Improved & Root-Aware)
@@ -51,9 +51,7 @@ sleep 1
 # --- Step 2: Start Nginx Server ---
 print_info "Starting Nginx web server..."
 
-# NEW: Check for super-user privileges.
-# Nginx needs root to bind to privileged ports (<1024) on many systems,
-# especially rooted Android devices.
+# Check for super-user privileges.
 if [ "$(whoami)" != "root" ]; then
     print_warning "You are not running as a super-user (root)."
     print_warning "If Nginx fails to start, it may be because it cannot bind to port 80."
