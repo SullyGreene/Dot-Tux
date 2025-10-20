@@ -1,10 +1,12 @@
-#!/data/data/com.termux/files/usr/bin/bash
+#!/usr/bin/env bash
 
 # ==============================================================================
-# Dex-Tux Installation Script (Improved)
+# Dot-Tux Installation Script (Fully Upgraded)
 #
-# This script prepares the Termux environment for Dex-Tux by installing
+# This script prepares the Termux environment for Dot-Tux by installing
 # dependencies, setting up directories, and creating a robust Nginx config.
+# It includes checks for common errors like running as root and uses
+# portable paths.
 # ==============================================================================
 
 # --- Color Definitions for pretty printing ---
@@ -32,18 +34,26 @@ print_error() {
 }
 
 
+# --- Pre-flight Checks ---
+# The 'pkg' command should not be run as root in Termux.
+if [ "$(whoami)" == "root" ]; then
+    print_error "This script should not be run as root. Please run it as the normal Termux user."
+    exit 1
+fi
+
+
 # --- Main Installation ---
 
 clear
 echo -e "${C_GREEN}"
 echo "###################################"
 echo "#                                 #"
-echo "#      Welcome to Dex-Tux         #"
-echo "#     Termux Domain Manager       #"
+echo "#       Welcome to Dot-Tux        #"
+echo "#      Termux Domain Manager      #"
 echo "#                                 #"
 echo "###################################"
 echo -e "${C_RESET}"
-echo "This script will install and configure Dex-Tux on your device."
+echo "This script will install and configure Dot-Tux on your device."
 echo ""
 sleep 3
 
@@ -63,14 +73,16 @@ if [ $? -ne 0 ]; then
     print_error "Failed to install dependencies. Please check your internet connection."
     exit 1
 fi
+# Install required python packages
+pip install flask
 print_success "All dependencies are installed."
 echo ""
 sleep 1
 
 # --- Step 3: Create Directory Structure ---
 print_info "Creating necessary directories for Nginx and websites..."
-mkdir -p ~/sites
-mkdir -p ~/.termux/boot
+mkdir -p "$HOME/sites"
+mkdir -p "$HOME/.termux/boot"
 mkdir -p "$PREFIX/etc/nginx/sites-available"
 mkdir -p "$PREFIX/etc/nginx/sites-enabled"
 print_success "Directory structure is ready."
@@ -88,10 +100,9 @@ if [ -f "$NGINX_CONF_PATH" ]; then
 fi
 
 # Create a new, robust nginx.conf using a heredoc
-# This version uses a standard 'sites-enabled' structure, which is best practice.
 print_info "Creating a new robust nginx.conf..."
 cat <<EOF > "$NGINX_CONF_PATH"
-# Main Nginx Configuration for Dex-Tux
+# Main Nginx Configuration for Dot-Tux
 
 user nobody;
 worker_processes 1;
@@ -120,24 +131,22 @@ echo ""
 sleep 1
 
 # --- Step 5: Set up Termux:Boot script ---
-BOOT_SCRIPT_PATH=~/.termux/boot/start-dextux
-# Assume the project is in the user's home directory for robustness
-PROJECT_NAME=$(basename "$(pwd)")
-PROJECT_HOME_PATH="~/${PROJECT_NAME}"
+BOOT_SCRIPT_PATH="$HOME/.termux/boot/start-dottux"
+# Get the absolute path of the current script's directory
+PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 print_info "Setting up auto-start script for Termux:Boot..."
-print_warning "The boot script will assume this project is located at ${PROJECT_HOME_PATH}"
 
 cat <<EOF > "$BOOT_SCRIPT_PATH"
-#!/data/data/com.termux/files/usr/bin/sh
+#!/usr/bin/env sh
 
 # This script is executed by Termux:Boot on device startup.
 
-# Wait for network to be ready
-sleep 20
+# Wait for network to be ready (30 seconds should be safe)
+sleep 30
 
-# Navigate to the Dex-Tux project directory (assumed to be in home dir)
-cd "${PROJECT_HOME_PATH}"
+# Navigate to the Dot-Tux project directory
+cd "${PROJECT_DIR}"
 
 # Execute the main start script
 ./start.sh
@@ -153,17 +162,18 @@ sleep 1
 echo -e "${C_GREEN}"
 echo "###################################"
 echo "#                                 #"
-echo "#      Installation Complete!     #"
+echo "#     Installation Complete!      #"
 echo "#                                 #"
 echo "###################################"
 echo -e "${C_RESET}"
 echo ""
-print_warning "IMPORTANT - Final manual steps:"
-echo -e "1. Make sure you have installed the ${C_YELLOW}Termux:Boot app${C_RESET} from F-Droid."
-echo -e "2. ${C_RED}Disable Battery Optimization${C_RESET} for both 'Termux' and 'Termux:Boot' apps."
-echo -e "3. Find your device's local IP with the ${C_YELLOW}'ifconfig'${C_RESET} command."
-echo -e "4. Edit the 'hosts' file on your computer to point 'dex.tux' (and other domains) to that IP."
+print_warning "IMPORTANT - FINAL MANUAL STEPS:"
+echo -e "1. Install the ${C_YELLOW}Termux:Boot app${C_RESET} from F-Droid or the Play Store."
+echo -e "2. ${C_RED}Disable Battery Optimization${C_RESET} for both 'Termux' and 'Termux:Boot' in your phone's settings."
+echo -e "3. Find your phone's IP address with the ${C_YELLOW}ifconfig${C_RESET} command."
+echo -e "4. Edit the 'hosts' file on your computer to point 'dot.tux' to that IP."
 echo ""
 print_info "You can now start the server for the first time by running:"
 echo -e "${C_GREEN}./start.sh${C_RESET}"
 echo ""
+
