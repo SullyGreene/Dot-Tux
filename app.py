@@ -5,111 +5,119 @@ import shutil
 from flask import Flask, render_template_string, request, redirect, url_for, flash
 
 # ==============================================================================
-# Dot-Tux Control Panel
+# Dot-Tux Control Panel (Fully Upgraded & Modular)
 #
-# A Flask web application to dynamically manage Nginx server blocks for
-# local domain hosting within Termux.
+# This Flask app now intelligently detects the chosen web server (Nginx, Caddy,
+# or Lighttpd) and manages site configurations in a modular, file-based way.
 # ==============================================================================
 
 
 # --- Configuration Constants ---
-# Use environment variables for robust path handling in Termux
 HOME_DIR = os.getenv("HOME")
+PREFIX_DIR = os.getenv("PREFIX", "")
 SITES_DIR = os.path.join(HOME_DIR, "sites")
-NGINX_CONF_PATH = os.path.join(os.getenv("PREFIX", ""), "etc", "nginx", "nginx.conf")
-RELOAD_SCRIPT_PATH = os.path.join(HOME_DIR, "Dot-Tux", "reload.sh")
+SITES_ENABLED_DIR = os.path.join(PREFIX_DIR, "etc", "dottux", "sites-enabled")
+CHOICE_FILE = os.path.join(HOME_DIR, ".dottux_choice")
 CONTROL_PANEL_DOMAIN = "dot.tux"
 
 # --- Flask App Initialization ---
 app = Flask(__name__)
-# A secret key is required for flashing messages to the user
 app.secret_key = os.urandom(24)
 
 
-# --- Nginx & Filesystem Helper Functions ---
+# --- Server & Filesystem Helper Functions ---
+
+def get_server_choice():
+    """Reads the server choice file to determine the active web server."""
+    try:
+        with open(CHOICE_FILE, 'r') as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        return None
 
 def get_managed_domains():
     """
-    Parses the nginx.conf file to find all domains managed by Dot-Tux,
-    identifiable by special comment markers.
+    Scans the sites-enabled directory to find all managed domains.
+    This is now server-agnostic.
     """
     domains = []
-    try:
-        with open(NGINX_CONF_PATH, 'r') as f:
-            content = f.read()
-            # Regex to find domains within our specific comment markers
-            # Example: # START dot-tux domain: example.tux
-            found = re.findall(r'# START dot-tux domain: (.*)', content)
-            domains = [d for d in found if d != CONTROL_PANEL_DOMAIN]
-    except FileNotFoundError:
-        flash("CRITICAL: Nginx config file not found!", "danger")
+    if not os.path.isdir(SITES_ENABLED_DIR):
+        flash("CRITICAL: Sites-enabled directory not found!", "danger")
+        return []
+    
+    for filename in os.listdir(SITES_ENABLED_DIR):
+        # We identify domains by their config file names
+        if filename.endswith(('.conf', '.tux')):
+             # Remove extension for display
+            domain = filename.replace('.conf', '').replace('.tux', '')
+            if domain != CONTROL_PANEL_DOMAIN:
+                domains.append(domain)
     return sorted(domains)
 
-
-def add_domain_config(domain):
+def add_domain_config(domain, server_choice):
     """
-    Appends a new, properly formatted Nginx server block for the given
-    domain to the configuration file, wrapped in management comments.
+    Creates a new server configuration file for the chosen server,
+    plus the site directory and a default index.html.
     """
     site_path = os.path.join(SITES_DIR, domain)
-    
-    # 1. Create the directory for the new site's files
     os.makedirs(site_path, exist_ok=True)
     
-    # 2. Create a default index.html for the new site
+    # Create a default index.html
     with open(os.path.join(site_path, "index.html"), "w") as f:
         f.write(f"<h1>Welcome to {domain}</h1>\n<p>This site is managed by Dot-Tux.</p>")
 
-    # 3. Define the Nginx server block template
-    new_server_block = f"""
-# START dot-tux domain: {domain}
-server {{
-    listen 8080;
-    server_name {domain};
+    config_content = ""
+    config_filename = f"{domain}.conf"
 
-    location / {{
-        root {site_path};
-        index index.html index.htm;
-    }}
+    # Generate the appropriate config block for the selected server
+    if server_choice == 'nginx':
+        config_content = f"""
+server {{
+    listen 80;
+    server_name {domain};
+    root {site_path};
+    index index.html index.htm;
 }}
-# END dot-tux domain: {domain}
 """
-    # 4. Append the new block to the main config file
-    with open(NGINX_CONF_PATH, 'a') as f:
-        f.write(new_server_block)
+    elif server_choice == 'caddy':
+        config_filename = domain # Caddy doesn't need an extension
+        config_content = f"""
+{domain}:80 {{
+    root * {site_path}
+    file_server
+}}
+"""
+    elif server_choice == 'lighttpd':
+        config_content = f"""
+\$HTTP["host"] == "{domain}" {{
+    server.document-root = "{site_path}"
+}}
+"""
+    else:
+        flash(f"Unknown server type '{server_choice}'!", "danger")
+        return False
+
+    # Write the new configuration file
+    with open(os.path.join(SITES_ENABLED_DIR, config_filename), 'w') as f:
+        f.write(config_content)
     return True
 
-
-def remove_domain_config(domain):
+def remove_domain_config(domain, server_choice):
     """
-    Safely removes a domain's server block from the nginx.conf file by
-    locating its management comment markers and excluding the content between them.
-    It also removes the associated site directory.
+    Removes a domain's configuration file and its site directory.
     """
-    lines_to_keep = []
-    in_block_to_delete = False
-    
-    start_marker = f"# START dot-tux domain: {domain}"
-    end_marker = f"# END dot-tux domain: {domain}"
-
     try:
-        # 1. Filter the nginx.conf content
-        with open(NGINX_CONF_PATH, 'r') as f:
-            for line in f:
-                if start_marker in line:
-                    in_block_to_delete = True
-                
-                if not in_block_to_delete:
-                    lines_to_keep.append(line)
-                
-                if end_marker in line:
-                    in_block_to_delete = False
+        # Determine the config filename to delete
+        if server_choice == 'caddy':
+             config_filename = domain
+        else:
+             config_filename = f"{domain}.conf"
 
-        # 2. Overwrite the config file with the filtered content
-        with open(NGINX_CONF_PATH, 'w') as f:
-            f.writelines(lines_to_keep)
+        config_path = os.path.join(SITES_ENABLED_DIR, config_filename)
+        if os.path.exists(config_path):
+            os.remove(config_path)
 
-        # 3. Remove the site's directory
+        # Remove the site's directory
         site_path = os.path.join(SITES_DIR, domain)
         if os.path.isdir(site_path):
             shutil.rmtree(site_path)
@@ -119,34 +127,36 @@ def remove_domain_config(domain):
         flash(f"Error during domain removal: {e}", "danger")
         return False
 
-
 def run_reload_script():
     """
-    Executes the reload.sh script to test and apply the new Nginx config.
-    Returns True on success, False on failure.
+    Executes the main start.sh script to reload/restart the server.
+    This is the safest way to ensure the server comes back online correctly.
     """
     try:
-        # We use subprocess.run to wait for the script to complete
-        result = subprocess.run(['bash', RELOAD_SCRIPT_PATH], capture_output=True, text=True)
+        # We simply call the main start script, which is idempotent and handles
+        # reloading or restarting services as needed.
+        start_script_path = os.path.join(HOME_DIR, "Dot-Tux", "start.sh")
+        result = subprocess.run(['bash', start_script_path], capture_output=True, text=True, timeout=30)
+        
         if result.returncode == 0:
-            flash("Nginx reloaded successfully.", "success")
+            flash("Server reloaded and services restarted successfully.", "success")
             return True
         else:
-            # If the reload script fails, flash the error output
-            flash(f"Nginx reload failed! Config may be broken. Error: {result.stdout}{result.stderr}", "danger")
+            flash(f"Server reload failed! Error: {result.stdout}{result.stderr}", "danger")
             return False
     except FileNotFoundError:
-        flash("CRITICAL: reload.sh script not found!", "danger")
+        flash("CRITICAL: start.sh script not found!", "danger")
+        return False
+    except subprocess.TimeoutExpired:
+        flash("Server reload timed out. Please check the server status manually.", "warning")
         return False
 
-
 # --- HTML & CSS Template ---
-
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-ag-UTF-8">
+    <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dot-Tux Control Panel</title>
     <script src="https://cdn.tailwindcss.com"></script>
@@ -158,6 +168,9 @@ HTML_TEMPLATE = """
         .btn-danger { background-color: #e53e3e; }
         .btn-danger:hover { background-color: #c53030; }
         .input-field { background-color: #4a5568; border-color: #718096; }
+        .alert-success { background-color: #2f855a; }
+        .alert-danger { background-color: #c53030; }
+        .alert-warning { background-color: #dd6b20; }
     </style>
 </head>
 <body class="font-sans antialiased">
@@ -166,14 +179,15 @@ HTML_TEMPLATE = """
         <header class="text-center mb-8">
             <h1 class="text-4xl font-bold text-white">🐧 Dot-Tux</h1>
             <p class="text-lg text-gray-400">Termux Local Domain Manager</p>
+            <p class="text-sm text-gray-500 mt-1">Managing: <span class="font-mono p-1 bg-gray-700 rounded">{{ server_type | capitalize }}</span></p>
         </header>
 
         <!-- Flash Messages -->
         {% with messages = get_flashed_messages(with_categories=true) %}
           {% if messages %}
-            <div class="mb-4">
+            <div class="mb-4 space-y-2">
             {% for category, message in messages %}
-              <div class="p-4 rounded-lg text-white {{ 'bg-green-600' if category == 'success' else 'bg-red-600' }}">
+              <div class="p-4 rounded-lg text-white font-semibold alert-{{ category }}">
                 {{ message }}
               </div>
             {% endfor %}
@@ -200,7 +214,7 @@ HTML_TEMPLATE = """
                 <ul class="space-y-3">
                     {% for domain in domains %}
                     <li class="flex items-center justify-between p-3 bg-gray-700 rounded-md">
-                        <a href="http://{{ domain }}:8080" target="_blank" class="text-blue-400 hover:underline font-mono">
+                        <a href="http://{{ domain }}" target="_blank" class="text-blue-400 hover:underline font-mono">
                             {{ domain }}
                         </a>
                         <form action="{{ url_for('delete_domain', domain=domain) }}" method="POST" onsubmit="return confirm('Are you sure you want to delete {{ domain }}? This cannot be undone.');">
@@ -215,32 +229,33 @@ HTML_TEMPLATE = """
                 <p class="text-gray-400">No domains have been added yet.</p>
             {% endif %}
         </div>
-
     </div>
 </body>
 </html>
 """
 
-
 # --- Flask Routes ---
 
 @app.route('/')
 def index():
-    """
-    Renders the main dashboard page, displaying existing domains.
-    """
+    """Renders the main dashboard page."""
+    server_choice = get_server_choice()
+    if not server_choice:
+        flash("Server configuration is missing. Please run the main installer.", "danger")
+    
     domains = get_managed_domains()
-    return render_template_string(HTML_TEMPLATE, domains=domains)
-
+    return render_template_string(HTML_TEMPLATE, domains=domains, server_type=server_choice or "Unknown")
 
 @app.route('/add', methods=['POST'])
 def add_domain():
-    """
-    Handles the form submission for adding a new domain.
-    """
+    """Handles the form submission for adding a new domain."""
+    server_choice = get_server_choice()
+    if not server_choice:
+        flash("Cannot add domain: server choice is not configured.", "danger")
+        return redirect(url_for('index'))
+
     domain_prefix = request.form.get('domain', '').strip().lower()
     
-    # Basic validation
     if not domain_prefix or not re.match(r'^[a-z0-9-]+$', domain_prefix):
         flash("Invalid domain name. Use only letters, numbers, and hyphens.", "danger")
         return redirect(url_for('index'))
@@ -251,21 +266,21 @@ def add_domain():
         flash(f"Domain '{full_domain}' already exists.", "danger")
         return redirect(url_for('index'))
     
-    # Add config and reload Nginx
-    if add_domain_config(full_domain):
+    if add_domain_config(full_domain, server_choice):
         run_reload_script()
     else:
         flash("Failed to create domain configuration.", "danger")
         
     return redirect(url_for('index'))
 
-
 @app.route('/delete/<domain>', methods=['POST'])
 def delete_domain(domain):
-    """
-    Handles the request to delete a domain.
-    """
-    # Security check: do not allow deleting the control panel domain
+    """Handles the request to delete a domain."""
+    server_choice = get_server_choice()
+    if not server_choice:
+        flash("Cannot delete domain: server choice is not configured.", "danger")
+        return redirect(url_for('index'))
+
     if domain == CONTROL_PANEL_DOMAIN:
         flash("Cannot delete the control panel domain.", "danger")
         return redirect(url_for('index'))
@@ -274,8 +289,7 @@ def delete_domain(domain):
         flash(f"Domain '{domain}' not found.", "danger")
         return redirect(url_for('index'))
         
-    # Remove config and reload Nginx
-    if remove_domain_config(domain):
+    if remove_domain_config(domain, server_choice):
         run_reload_script()
     else:
         flash(f"Failed to remove domain '{domain}'.", "danger")
@@ -284,10 +298,7 @@ def delete_domain(domain):
 
 
 # --- Main Execution ---
-
 if __name__ == '__main__':
-    # The app should listen on 127.0.0.1 (localhost) on a dedicated port.
-    # Nginx will be configured to proxy requests for dot.tux to this server.
-    # This keeps the control panel secure and accessible via the main port 8080.
-    # NOTE: The default nginx.conf in your repo MUST have the proxy_pass rule for dot.tux.
-    app.run(host='127.0.0.1', port=5000)
+    # Listens on 127.0.0.1:5000. Nginx/Caddy/Lighttpd should be configured
+    # to proxy requests for dot.tux to this address.
+    app.run(host='127.0.0.1', port=5000, debug=False)
