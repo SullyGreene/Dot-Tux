@@ -1,10 +1,10 @@
 #!/data/data/com.termux/files/usr/bin/bash
 
 # ==============================================================================
-# Dex-Tux Installation Script
+# Dex-Tux Installation Script (Improved)
 #
 # This script prepares the Termux environment for Dex-Tux by installing
-# dependencies, setting up directories, and configuring auto-start on boot.
+# dependencies, setting up directories, and creating a robust Nginx config.
 # ==============================================================================
 
 # --- Color Definitions for pretty printing ---
@@ -39,7 +39,7 @@ echo -e "${C_GREEN}"
 echo "###################################"
 echo "#                                 #"
 echo "#      Welcome to Dex-Tux         #"
-echo "#    Termux Domain Manager        #"
+echo "#     Termux Domain Manager       #"
 echo "#                                 #"
 echo "###################################"
 echo -e "${C_RESET}"
@@ -68,10 +68,11 @@ echo ""
 sleep 1
 
 # --- Step 3: Create Directory Structure ---
-print_info "Creating necessary directories..."
+print_info "Creating necessary directories for Nginx and websites..."
 mkdir -p ~/sites
 mkdir -p ~/.termux/boot
-# The 'dex.tux' directory will be managed by app.py, but we ensure its parent exists.
+mkdir -p "$PREFIX/etc/nginx/sites-available"
+mkdir -p "$PREFIX/etc/nginx/sites-enabled"
 print_success "Directory structure is ready."
 echo ""
 sleep 1
@@ -80,31 +81,53 @@ sleep 1
 NGINX_CONF_PATH="$PREFIX/etc/nginx/nginx.conf"
 print_info "Setting up Nginx configuration..."
 
-# Check if an nginx.conf file exists in the repo directory
-if [ ! -f "nginx.conf" ]; then
-    print_error "'nginx.conf' not found in the repository root. Cannot proceed."
-    exit 1
-fi
-
-# Backup existing Nginx config if it's not the default one
+# Backup existing Nginx config
 if [ -f "$NGINX_CONF_PATH" ]; then
     print_warning "Existing Nginx config found. Backing it up to ${NGINX_CONF_PATH}.bak"
     mv "$NGINX_CONF_PATH" "${NGINX_CONF_PATH}.bak"
 fi
 
-# Copy the repository's config file
-cp nginx.conf "$NGINX_CONF_PATH"
-print_success "Nginx has been configured."
+# Create a new, robust nginx.conf using a heredoc
+# This version uses a standard 'sites-enabled' structure, which is best practice.
+print_info "Creating a new robust nginx.conf..."
+cat <<EOF > "$NGINX_CONF_PATH"
+# Main Nginx Configuration for Dex-Tux
+
+user nobody;
+worker_processes 1;
+
+error_log $PREFIX/var/log/nginx/error.log;
+pid       $PREFIX/var/run/nginx.pid;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    include       mime.types;
+    default_type  application/octet-stream;
+
+    sendfile        on;
+    keepalive_timeout  65;
+
+    # Include all virtual host configs that are enabled
+    include $PREFIX/etc/nginx/sites-enabled/*;
+}
+EOF
+
+print_success "Nginx has been configured with a new robust setup."
 echo ""
 sleep 1
 
 # --- Step 5: Set up Termux:Boot script ---
 BOOT_SCRIPT_PATH=~/.termux/boot/start-dextux
-PROJECT_DIR=$(pwd) # Get the absolute path of the Dex-Tux repo
+# Assume the project is in the user's home directory for robustness
+PROJECT_NAME=$(basename "$(pwd)")
+PROJECT_HOME_PATH="~/${PROJECT_NAME}"
 
 print_info "Setting up auto-start script for Termux:Boot..."
+print_warning "The boot script will assume this project is located at ${PROJECT_HOME_PATH}"
 
-# Create the boot script using a heredoc
 cat <<EOF > "$BOOT_SCRIPT_PATH"
 #!/data/data/com.termux/files/usr/bin/sh
 
@@ -113,8 +136,8 @@ cat <<EOF > "$BOOT_SCRIPT_PATH"
 # Wait for network to be ready
 sleep 20
 
-# Navigate to the Dex-Tux project directory
-cd "$PROJECT_DIR"
+# Navigate to the Dex-Tux project directory (assumed to be in home dir)
+cd "${PROJECT_HOME_PATH}"
 
 # Execute the main start script
 ./start.sh
@@ -126,21 +149,20 @@ print_success "Auto-start script created at ${BOOT_SCRIPT_PATH}"
 echo ""
 sleep 1
 
-
 # --- Final Instructions ---
 echo -e "${C_GREEN}"
 echo "###################################"
 echo "#                                 #"
-echo "#    Installation Complete!       #"
+echo "#      Installation Complete!     #"
 echo "#                                 #"
 echo "###################################"
 echo -e "${C_RESET}"
 echo ""
 print_warning "IMPORTANT - Final manual steps:"
 echo -e "1. Make sure you have installed the ${C_YELLOW}Termux:Boot app${C_RESET} from F-Droid."
-echo -e "2. ${C_RED}Disable Battery Optimization${C_RESET} for both 'Termux' and 'Termux:Boot' apps in your phone's settings. This is crucial!"
+echo -e "2. ${C_RED}Disable Battery Optimization${C_RESET} for both 'Termux' and 'Termux:Boot' apps."
 echo -e "3. Find your device's local IP with the ${C_YELLOW}'ifconfig'${C_RESET} command."
-echo -e "4. Edit the 'hosts' file on your computer to point 'dex.tux' to that IP."
+echo -e "4. Edit the 'hosts' file on your computer to point 'dex.tux' (and other domains) to that IP."
 echo ""
 print_info "You can now start the server for the first time by running:"
 echo -e "${C_GREEN}./start.sh${C_RESET}"
