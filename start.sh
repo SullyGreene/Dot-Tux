@@ -1,10 +1,11 @@
-#!/data/data/com.termux/files/usr/bin/bash
+#!/data/data/com/termux/files/usr/bin/bash
 
 # ==============================================================================
-# Dot-Tux Start Script (Improved)
+# Dot-Tux Start Script (Improved & Root-Aware)
 #
 # This script starts the Nginx server and the Python control panel,
-# captures logs, and provides robust process checks.
+# captures logs, provides robust process checks, and warns users on
+# rooted devices about potential permission issues.
 # ==============================================================================
 
 # --- Color Definitions ---
@@ -27,6 +28,10 @@ print_error() {
     echo -e "${C_RED}[ERROR] $1${C_RESET}"
 }
 
+print_warning() {
+    echo -e "${C_YELLOW}[WARNING] $1${C_RESET}"
+}
+
 # --- Configuration ---
 NGINX_CONF_PATH="/data/data/com.termux/files/usr/etc/nginx/nginx.conf"
 LOG_FILE="app.log"
@@ -45,6 +50,18 @@ sleep 1
 
 # --- Step 2: Start Nginx Server ---
 print_info "Starting Nginx web server..."
+
+# NEW: Check for super-user privileges.
+# Nginx needs root to bind to privileged ports (<1024) on many systems,
+# especially rooted Android devices.
+if [ "$(whoami)" != "root" ]; then
+    print_warning "You are not running as a super-user (root)."
+    print_warning "If Nginx fails to start, it may be because it cannot bind to port 80."
+    print_warning "On rooted devices, try running this script with 'su -c ./start.sh'"
+    echo ""
+    sleep 3
+fi
+
 if pgrep -x "nginx" > /dev/null; then
     print_success "Nginx is already running."
 else
@@ -101,3 +118,4 @@ echo -e "${C_YELLOW}http://dot.tux${C_RESET} or ${C_YELLOW}http://${IP_ADDR}${C_
 echo ""
 print_info "To stop the server, run: ${C_GREEN}./stop.sh${C_RESET}"
 echo ""
+
