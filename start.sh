@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
 
 # ==============================================================================
-# Dot-Tux Start Script (Improved & Root-Aware)
+# Dot-Tux Start Script (Fully Upgraded & su/tsu Aware)
 #
-# This script starts the Nginx server and the Python control panel,
-# captures logs, provides robust process checks, and warns users on
-# rooted devices about potential permission issues.
+# This script intelligently detects the correct superuser command (tsu or su)
+# and provides accurate instructions for users on rooted devices.
 # ==============================================================================
 
 # --- Color Definitions ---
@@ -51,13 +50,25 @@ sleep 1
 # --- Step 2: Start Nginx Server ---
 print_info "Starting Nginx web server..."
 
-# Check for super-user privileges.
+# NEW: Intelligently check for super-user privileges and the correct command.
 if [ "$(whoami)" != "root" ]; then
-    print_warning "You are not running as a super-user (root)."
-    print_warning "If Nginx fails to start, it may be because it cannot bind to port 80."
-    print_warning "On rooted devices, try running this script with 'su -c ./start.sh'"
-    echo ""
-    sleep 3
+    SU_CMD=""
+    # Check for 'tsu' first, as it's common in Termux root packages.
+    if command -v tsu >/dev/null 2>&1; then
+        SU_CMD="tsu -c ./start.sh"
+    # Fallback to standard 'su' if 'tsu' is not found.
+    elif command -v su >/dev/null 2>&1; then
+        SU_CMD="su -c ./start.sh"
+    fi
+
+    # If a valid superuser command was found, show the warning.
+    if [ -n "$SU_CMD" ]; then
+        print_warning "You are not running as a super-user (root)."
+        print_warning "If Nginx fails, it may be because it cannot bind to port 80."
+        print_warning "On rooted devices, try running this script with: '${SU_CMD}'"
+        echo ""
+        sleep 3
+    fi
 fi
 
 if pgrep -x "nginx" > /dev/null; then
@@ -111,7 +122,6 @@ echo -e "${C_GREEN}#                                          #${C_RESET}"
 echo -e "${C_GREEN}############################################${C_RESET}"
 echo ""
 print_info "Your control panel should be accessible at:"
-# Default web port is 80, so we don't need to specify it in the URL
 echo -e "${C_YELLOW}http://dot.tux${C_RESET} or ${C_YELLOW}http://${IP_ADDR}${C_RESET}"
 echo ""
 print_info "To stop the server, run: ${C_GREEN}./stop.sh${C_RESET}"
